@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   Search,
@@ -10,9 +10,11 @@ import {
   XCircle,
   Wrench,
   Loader2,
-  AlertCircle,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MaintenanceRecord {
   id: string;
@@ -27,18 +29,20 @@ interface MaintenanceRecord {
   findings: string | null;
 }
 
-interface StatItem {
+interface ApiStat {
   label: string;
   value: string;
   type: string;
 }
 
+// ─── Config ───────────────────────────────────────────────────────────────────
+
 const TYPE_BADGE: Record<string, string> = {
   preventive: "badge-success",
   corrective: "badge-warning",
   emergency: "badge-danger",
+  inspection: "badge-blue",
   calibration: "badge-blue",
-  inspection: "badge-info",
 };
 
 const STATUS_CONFIG: Record<
@@ -51,134 +55,315 @@ const STATUS_CONFIG: Record<
   cancelled: { label: "Cancelled", icon: XCircle, cls: "text-slate-400" },
 };
 
-const STAT_ICON_MAP: Record<
-  string,
-  { icon: React.ElementType; color: string }
-> = {
+const STAT_ICONS: Record<string, { icon: React.ElementType; color: string }> = {
   total: { icon: Wrench, color: "bg-blue-500/15 text-blue-400" },
   completed: { icon: CheckCircle, color: "bg-emerald-500/15 text-emerald-400" },
   in_progress: { icon: Clock, color: "bg-indigo-500/15 text-indigo-400" },
   upcoming: { icon: Calendar, color: "bg-amber-500/15 text-amber-400" },
 };
 
-export default function MaintenancePage() {
-  // Core Visual Engine State
-  const [records, setRecords] = useState<MaintenanceRecord[]>([]);
-  const [stats, setStats] = useState<StatItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+const TYPES = [
+  "preventive",
+  "corrective",
+  "emergency",
+  "inspection",
+  "calibration",
+];
 
-  // Search/Filters Lifecycle State
-  const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [showForm, setShowForm] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+function fmt(dateStr: string): string {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleDateString("en-NG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
-  // Form Field Interactive Value Tracking State
-  const [formEquipment, setFormEquipment] = useState("");
-  const [formDept, setFormDept] = useState("Radiology");
-  const [formType, setFormType] = useState("preventive");
-  const [formDate, setFormDate] = useState("");
-  const [formTech, setFormTech] = useState("");
-  const [formFindings, setFormFindings] = useState("");
+function formatCost(n: number | null): string {
+  if (!n) return "—";
+  if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `₦${(n / 1_000).toFixed(0)}K`;
+  return `₦${n}`;
+}
 
-  // Reusable retrieval hook wrapper
-  async function loadDataPipeline() {
-    try {
-      const res = await fetch("/api/maintenance");
-      if (!res.ok)
-        throw new Error(
-          "Could not extract active log history database parameters.",
-        );
-      const data = await res.json();
-      setRecords(data.records);
-      setStats(data.stats);
+// ─── Log Maintenance Modal ────────────────────────────────────────────────────
 
-      // Auto-populate default text field options safely
-      if (data.records.length > 0 && !formEquipment) {
-        setFormEquipment(data.records[0].equipment);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadDataPipeline();
-  }, []);
-
-  // Form Creation POST Event Pipeline
-  const handleSubmitRecord = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      const response = await fetch("/api/maintenance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          equipment: formEquipment,
-          dept: formDept,
-          type: formType,
-          date: formDate,
-          tech: formTech,
-          findings: formFindings,
-        }),
-      });
-
-      if (!response.ok)
-        throw new Error(
-          "Could not successfully record maintenance entry parameters.",
-        );
-
-      // Clear input fields safely
-      setFormTech("");
-      setFormFindings("");
-      setShowForm(false);
-
-      // Instantly query updated data map values cleanly
-      await loadDataPipeline();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Error saving record");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const filtered = records.filter((r) => {
-    const ms = r.equipment.toLowerCase().includes(search.toLowerCase());
-    const mt = typeFilter === "all" || r.type === typeFilter;
-    return ms && mt;
+function LogMaintenanceModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    equipment: "",
+    dept: "Radiology",
+    type: "preventive",
+    tech: "",
+    date: new Date().toISOString().split("T")[0],
+    duration: 0,
+    cost: 0,
+    findings: "",
   });
 
-  if (error) {
-    return (
-      <div className="p-8 text-center bg-red-500/10 rounded-xl border border-red-500/20 text-red-400">
-        <AlertCircle className="mx-auto mb-2" size={24} />
-        <p className="font-semibold">Engine Pipeline Interrupted</p>
-        <p className="text-sm opacity-80">{error}</p>
-      </div>
-    );
+  function handleChange(
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >,
+  ) {
+    const { name, value } = e.target;
+    setForm((f) => ({
+      ...f,
+      [name]: name === "duration" || name === "cost" ? Number(value) : value,
+    }));
   }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSaving(true);
+    try {
+      const res = await fetch("/api/maintenance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error("Request failed");
+      onSaved();
+      onClose();
+    } catch {
+      setError("Failed to save record. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inp =
+    "w-full bg-slate-800 border border-slate-700 hover:border-slate-600 focus:border-blue-500 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-colors";
+  const lbl = "block text-xs font-medium text-slate-400 mb-1.5";
+
+  const DEPARTMENTS = [
+    "Radiology",
+    "ICU",
+    "NICU",
+    "Surgery",
+    "Laboratory",
+    "Obstetrics",
+    "Cardiology",
+    "Theatre",
+    "Emergency",
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-slate-800">
+          <div>
+            <h2 className="text-base font-bold text-white">Log Maintenance</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Record a maintenance activity
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className={lbl}>Equipment name *</label>
+            <input
+              name="equipment"
+              required
+              value={form.equipment}
+              onChange={handleChange}
+              placeholder="e.g. Siemens ACUSON X700 Ultrasound"
+              className={inp}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={lbl}>Department</label>
+              <select
+                name="dept"
+                value={form.dept}
+                onChange={handleChange}
+                className={inp}
+              >
+                {DEPARTMENTS.map((d) => (
+                  <option key={d} value={d} className="bg-slate-800">
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={lbl}>Type</label>
+              <select
+                name="type"
+                value={form.type}
+                onChange={handleChange}
+                className={inp}
+              >
+                {TYPES.map((t) => (
+                  <option key={t} value={t} className="bg-slate-800 capitalize">
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={lbl}>Technician *</label>
+              <input
+                name="tech"
+                required
+                value={form.tech}
+                onChange={handleChange}
+                placeholder="e.g. Eze Chukwu"
+                className={inp}
+              />
+            </div>
+            <div>
+              <label className={lbl}>Scheduled date *</label>
+              <input
+                name="date"
+                type="date"
+                required
+                value={form.date}
+                onChange={handleChange}
+                className={inp}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={lbl}>Duration (hours)</label>
+              <input
+                name="duration"
+                type="number"
+                min={0}
+                value={form.duration}
+                onChange={handleChange}
+                className={inp}
+              />
+            </div>
+            <div>
+              <label className={lbl}>Cost (₦)</label>
+              <input
+                name="cost"
+                type="number"
+                min={0}
+                value={form.cost}
+                onChange={handleChange}
+                className={inp}
+              />
+            </div>
+          </div>
+          <div>
+            <label className={lbl}>Findings / notes</label>
+            <textarea
+              name="findings"
+              value={form.findings ?? ""}
+              onChange={handleChange}
+              rows={3}
+              placeholder="Additional findings or observations…"
+              className={`${inp} resize-none`}
+            />
+          </div>
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-xl px-4 py-3">
+              {error}
+            </div>
+          )}
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold rounded-xl py-2.5 text-sm transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              {saving ? "Saving…" : "Save record"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function MaintenancePage() {
+  const [records, setRecords] = useState<MaintenanceRecord[]>([]);
+  const [apiStats, setApiStats] = useState<ApiStat[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [showModal, setShowModal] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/maintenance");
+      const data = await res.json();
+      setRecords(data.records ?? []);
+      setApiStats(data.stats ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this maintenance record?")) return;
+    // Optimistic removal — add a DELETE endpoint to your route if you need persistence
+    setRecords((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  const filtered = records.filter((r) => {
+    const matchSearch =
+      r.equipment.toLowerCase().includes(search.toLowerCase()) ||
+      r.tech.toLowerCase().includes(search.toLowerCase()) ||
+      r.dept.toLowerCase().includes(search.toLowerCase());
+    return matchSearch && (typeFilter === "all" || r.type === typeFilter);
+  });
 
   return (
     <div className="space-y-5 fade-in">
-      {/* Dynamic Statistics Panel Section */}
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {isLoading ?
-          Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="card p-4 h-20 animate-pulse bg-slate-900/40 border border-slate-800"
-            />
-          ))
-        : stats.map((s) => {
-            const cfg = STAT_ICON_MAP[s.type] || {
-              icon: Wrench,
-              color: "bg-slate-500/10 text-slate-400",
-            };
+        {loading ?
+          Array(4)
+            .fill(0)
+            .map((_, i) => (
+              <div
+                key={i}
+                className="card p-4 h-20 animate-pulse bg-slate-900/40 border border-slate-800"
+              />
+            ))
+        : apiStats.map((s) => {
+            const cfg = STAT_ICONS[s.type] ?? STAT_ICONS.total;
             const Icon = cfg.icon;
             return (
               <div key={s.label} className="card p-4 flex items-center gap-3">
@@ -202,9 +387,9 @@ export default function MaintenancePage() {
         }
       </div>
 
-      {/* Control Toolbar */}
+      {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="relative">
             <Search
               size={14}
@@ -218,13 +403,7 @@ export default function MaintenancePage() {
             />
           </div>
           <div className="flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg p-1">
-            {[
-              "all",
-              "preventive",
-              "corrective",
-              "emergency",
-              "calibration",
-            ].map((t) => (
+            {["all", ...TYPES].map((t) => (
               <button
                 key={t}
                 onClick={() => setTypeFilter(t)}
@@ -241,14 +420,14 @@ export default function MaintenancePage() {
           </div>
         </div>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => setShowModal(true)}
           className="btn-primary flex items-center gap-2 text-sm"
         >
           <Plus size={15} /> Log Maintenance
         </button>
       </div>
 
-      {/* Primary Log History Records Table View */}
+      {/* Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -256,13 +435,14 @@ export default function MaintenancePage() {
               <tr className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">
                 {[
                   "Equipment",
+                  "Dept",
                   "Type",
                   "Status",
                   "Date",
                   "Technician",
                   "Duration",
-                  "Cost (₦)",
-                  "Findings",
+                  "Cost",
+                  "Actions",
                 ].map((h) => (
                   <th
                     key={h}
@@ -274,50 +454,55 @@ export default function MaintenancePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {isLoading ?
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="text-center py-12 text-xs text-[var(--text-muted)]"
-                  >
-                    <Loader2
-                      className="animate-spin mx-auto mb-2 text-blue-500"
-                      size={18}
-                    />
-                    Processing equipment logs...
-                  </td>
-                </tr>
+              {loading ?
+                Array(5)
+                  .fill(0)
+                  .map((_, i) => (
+                    <tr key={i}>
+                      {Array(9)
+                        .fill(0)
+                        .map((_, j) => (
+                          <td key={j} className="px-4 py-3">
+                            <div className="h-4 bg-[var(--bg-elevated)] rounded animate-pulse" />
+                          </td>
+                        ))}
+                    </tr>
+                  ))
               : filtered.length === 0 ?
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="text-center py-12 text-xs text-[var(--text-muted)]"
                   >
-                    No log parameters match active search scopes.
+                    {records.length === 0 ?
+                      'No records yet. Click "Log Maintenance" to add one.'
+                    : "No records match your search."}
                   </td>
                 </tr>
               : filtered.map((r) => {
-                  const sc = STATUS_CONFIG[r.status] || {
-                    label: r.status,
-                    icon: Wrench,
-                    cls: "text-slate-400",
-                  };
+                  const sc = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.scheduled;
+                  const StatusIcon = sc.icon;
                   return (
                     <tr
                       key={r.id}
-                      className="hover:bg-[var(--bg-elevated)] transition-colors group cursor-pointer"
+                      className="hover:bg-[var(--bg-elevated)] transition-colors group"
                     >
                       <td className="px-4 py-3">
                         <p className="text-xs font-medium text-[var(--text-primary)] max-w-[180px] truncate">
                           {r.equipment}
                         </p>
-                        <p className="text-[11px] text-[var(--text-muted)]">
-                          {r.dept}
-                        </p>
+                        {r.findings && (
+                          <p className="text-[11px] text-[var(--text-muted)] truncate max-w-[180px]">
+                            {r.findings}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
+                        {r.dept}
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`badge ${TYPE_BADGE[r.type]} capitalize`}
+                          className={`badge ${TYPE_BADGE[r.type] ?? "badge-info"} capitalize`}
                         >
                           {r.type}
                         </span>
@@ -326,12 +511,12 @@ export default function MaintenancePage() {
                         <div
                           className={`flex items-center gap-1.5 text-xs font-medium ${sc.cls}`}
                         >
-                          <sc.icon size={13} />
+                          <StatusIcon size={13} />
                           {sc.label}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs text-[var(--text-secondary)] whitespace-nowrap">
-                        {r.date}
+                        {fmt(r.date)}
                       </td>
                       <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
                         {r.tech}
@@ -340,10 +525,17 @@ export default function MaintenancePage() {
                         {r.duration ? `${r.duration}h` : "—"}
                       </td>
                       <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
-                        {r.cost ? r.cost.toLocaleString() : "—"}
+                        {formatCost(r.cost)}
                       </td>
-                      <td className="px-4 py-3 text-xs text-[var(--text-muted)] max-w-[200px] truncate">
-                        {r.findings ?? "—"}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleDelete(r.id)}
+                            className="text-[10px] text-red-400 hover:text-red-300 font-medium transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -354,148 +546,19 @@ export default function MaintenancePage() {
         </div>
         <div className="px-4 py-3 border-t border-[var(--border)]">
           <p className="text-xs text-[var(--text-muted)]">
-            Showing {filtered.length} of {records.length} records
+            {loading ?
+              "Loading…"
+            : `Showing ${filtered.length} of ${records.length} records`}
           </p>
         </div>
       </div>
 
-      {/* Interactive Modal Insertion Form */}
-      {showForm && (
-        <div
-          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowForm(false)}
-        >
-          <form
-            className="card p-6 w-full max-w-lg"
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={handleSubmitRecord}
-          >
-            <h2 className="text-base font-semibold text-[var(--text-primary)] mb-5">
-              Log Maintenance Record
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs text-[var(--text-muted)] mb-1.5">
-                  Equipment Target
-                </label>
-                <select
-                  className="w-full px-3 py-2 text-sm"
-                  value={formEquipment}
-                  onChange={(e) => setFormEquipment(e.target.value)}
-                >
-                  {records.map((r) => (
-                    <option key={r.id} value={r.equipment}>
-                      {r.equipment}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1.5">
-                    Department Area
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 text-sm"
-                    value={formDept}
-                    onChange={(e) => setFormDept(e.target.value)}
-                  >
-                    {[
-                      "Radiology",
-                      "ICU",
-                      "NICU",
-                      "Surgery",
-                      "Laboratory",
-                      "Obstetrics",
-                    ].map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1.5">
-                    Type Classification
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 text-sm"
-                    value={formType}
-                    onChange={(e) => setFormType(e.target.value)}
-                  >
-                    {[
-                      "preventive",
-                      "corrective",
-                      "emergency",
-                      "calibration",
-                      "inspection",
-                    ].map((t) => (
-                      <option key={t} value={t} className="capitalize">
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1.5">
-                    Scheduled Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    className="w-full px-3 py-2 text-sm"
-                    value={formDate}
-                    onChange={(e) => setFormDate(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1.5">
-                    Assigned Specialist Technician
-                  </label>
-                  <input
-                    required
-                    className="w-full px-3 py-2 text-sm"
-                    placeholder="Technician name"
-                    value={formTech}
-                    onChange={(e) => setFormTech(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--text-muted)] mb-1.5">
-                  Diagnostics / Clinical Findings
-                </label>
-                <textarea
-                  className="w-full px-3 py-2 text-sm h-20 resize-none"
-                  placeholder="Describe operational updates or system damage parameters verified..."
-                  value={formFindings}
-                  onChange={(e) => setFormFindings(e.target.value)}
-                />
-              </div>
-              <div className="flex gap-3 justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="btn-primary text-sm flex items-center gap-1.5"
-                >
-                  {isSubmitting && (
-                    <Loader2 size={12} className="animate-spin" />
-                  )}
-                  Save New Entry
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
+      {/* Modal */}
+      {showModal && (
+        <LogMaintenanceModal
+          onClose={() => setShowModal(false)}
+          onSaved={load}
+        />
       )}
     </div>
   );
