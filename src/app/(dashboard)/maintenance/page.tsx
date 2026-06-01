@@ -13,36 +13,26 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface MaintenanceRecord {
-  id: string;
-  equipment: string;
-  dept: string;
-  type: string;
-  status: string;
-  date: string;
-  tech: string;
-  duration: number | null;
-  cost: number | null;
-  findings: string | null;
-}
-
-interface ApiStat {
-  label: string;
-  value: string;
-  type: string;
-}
-
-// ─── Config ───────────────────────────────────────────────────────────────────
+import { useAuth } from "@/hooks/useAuth";
+import {
+  getMaintenanceRecords,
+  getEquipment,
+  addMaintenanceRecord,
+  updateMaintenanceRecord,
+  deleteMaintenanceRecord,
+} from "@/lib/firestore";
+import {
+  MaintenanceRecord,
+  Equipment,
+  MaintenanceType,
+  MaintenanceStatus,
+} from "@/types";
 
 const TYPE_BADGE: Record<string, string> = {
   preventive: "badge-success",
   corrective: "badge-warning",
   emergency: "badge-danger",
   inspection: "badge-blue",
-  calibration: "badge-blue",
 };
 
 const STATUS_CONFIG: Record<
@@ -55,57 +45,60 @@ const STATUS_CONFIG: Record<
   cancelled: { label: "Cancelled", icon: XCircle, cls: "text-slate-400" },
 };
 
-const STAT_ICONS: Record<string, { icon: React.ElementType; color: string }> = {
-  total: { icon: Wrench, color: "bg-blue-500/15 text-blue-400" },
-  completed: { icon: CheckCircle, color: "bg-emerald-500/15 text-emerald-400" },
-  in_progress: { icon: Clock, color: "bg-indigo-500/15 text-indigo-400" },
-  upcoming: { icon: Calendar, color: "bg-amber-500/15 text-amber-400" },
-};
-
-const TYPES = [
+const TYPES: MaintenanceType[] = [
   "preventive",
   "corrective",
   "emergency",
   "inspection",
-  "calibration",
+];
+const STATUSES: MaintenanceStatus[] = [
+  "scheduled",
+  "in_progress",
+  "completed",
+  "cancelled",
 ];
 
-function fmt(dateStr: string): string {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString("en-NG", {
+function fmt(date: Date | null) {
+  if (!date) return "—";
+  return date.toLocaleDateString("en-NG", {
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 }
-
-function formatCost(n: number | null): string {
+function formatCost(n: number) {
   if (!n) return "—";
   if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `₦${(n / 1_000).toFixed(0)}K`;
   return `₦${n}`;
 }
 
-// ─── Log Maintenance Modal ────────────────────────────────────────────────────
-
 function LogMaintenanceModal({
+  hospitalId,
+  userId,
+  equipment,
   onClose,
   onSaved,
 }: {
+  hospitalId: string;
+  userId: string;
+  equipment: Equipment[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
-    equipment: "",
-    dept: "Radiology",
-    type: "preventive",
-    tech: "",
-    date: new Date().toISOString().split("T")[0],
-    duration: 0,
+    equipmentId: equipment[0]?.id ?? "",
+    equipmentName: equipment[0]?.name ?? "",
+    type: "preventive" as MaintenanceType,
+    status: "scheduled" as MaintenanceStatus,
+    description: "",
+    technicianName: "",
+    scheduledDate: new Date().toISOString().split("T")[0],
+    downtime: 0,
     cost: 0,
-    findings: "",
+    notes: "",
   });
 
   function handleChange(
@@ -114,10 +107,19 @@ function LogMaintenanceModal({
     >,
   ) {
     const { name, value } = e.target;
-    setForm((f) => ({
-      ...f,
-      [name]: name === "duration" || name === "cost" ? Number(value) : value,
-    }));
+    if (name === "equipmentId") {
+      const eq = equipment.find((e) => e.id === value);
+      setForm((f) => ({
+        ...f,
+        equipmentId: value,
+        equipmentName: eq?.name ?? "",
+      }));
+    } else {
+      setForm((f) => ({
+        ...f,
+        [name]: name === "downtime" || name === "cost" ? Number(value) : value,
+      }));
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -125,12 +127,22 @@ function LogMaintenanceModal({
     setError("");
     setSaving(true);
     try {
-      const res = await fetch("/api/maintenance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+      await addMaintenanceRecord({
+        equipmentId: form.equipmentId,
+        equipmentName: form.equipmentName,
+        type: form.type,
+        status: form.status,
+        description: form.description,
+        technicianId: userId,
+        technicianName: form.technicianName,
+        scheduledDate: new Date(form.scheduledDate),
+        completedDate: form.status === "completed" ? new Date() : null,
+        downtime: form.downtime,
+        cost: form.cost,
+        partsReplaced: [],
+        notes: form.notes,
+        hospitalId,
       });
-      if (!res.ok) throw new Error("Request failed");
       onSaved();
       onClose();
     } catch {
@@ -143,18 +155,6 @@ function LogMaintenanceModal({
   const inp =
     "w-full bg-slate-800 border border-slate-700 hover:border-slate-600 focus:border-blue-500 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-colors";
   const lbl = "block text-xs font-medium text-slate-400 mb-1.5";
-
-  const DEPARTMENTS = [
-    "Radiology",
-    "ICU",
-    "NICU",
-    "Surgery",
-    "Laboratory",
-    "Obstetrics",
-    "Cardiology",
-    "Theatre",
-    "Emergency",
-  ];
 
   return (
     <div
@@ -180,32 +180,27 @@ function LogMaintenanceModal({
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className={lbl}>Equipment name *</label>
-            <input
-              name="equipment"
-              required
-              value={form.equipment}
-              onChange={handleChange}
-              placeholder="e.g. Siemens ACUSON X700 Ultrasound"
-              className={inp}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={lbl}>Department</label>
-              <select
-                name="dept"
-                value={form.dept}
+            <label className={lbl}>Equipment *</label>
+            {equipment.length === 0 ?
+              <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs rounded-xl px-4 py-3">
+                No equipment found — add equipment first before logging
+                maintenance.
+              </div>
+            : <select
+                name="equipmentId"
+                value={form.equipmentId}
                 onChange={handleChange}
                 className={inp}
               >
-                {DEPARTMENTS.map((d) => (
-                  <option key={d} value={d} className="bg-slate-800">
-                    {d}
+                {equipment.map((e) => (
+                  <option key={e.id} value={e.id} className="bg-slate-800">
+                    {e.name} — {e.department}
                   </option>
                 ))}
               </select>
-            </div>
+            }
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={lbl}>Type</label>
               <select
@@ -221,14 +216,40 @@ function LogMaintenanceModal({
                 ))}
               </select>
             </div>
+            <div>
+              <label className={lbl}>Status</label>
+              <select
+                name="status"
+                value={form.status}
+                onChange={handleChange}
+                className={inp}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s} value={s} className="bg-slate-800 capitalize">
+                    {s.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={lbl}>Description *</label>
+            <input
+              name="description"
+              required
+              value={form.description}
+              onChange={handleChange}
+              placeholder="e.g. Annual calibration and inspection"
+              className={inp}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={lbl}>Technician *</label>
+              <label className={lbl}>Technician name *</label>
               <input
-                name="tech"
+                name="technicianName"
                 required
-                value={form.tech}
+                value={form.technicianName}
                 onChange={handleChange}
                 placeholder="e.g. Eze Chukwu"
                 className={inp}
@@ -237,10 +258,10 @@ function LogMaintenanceModal({
             <div>
               <label className={lbl}>Scheduled date *</label>
               <input
-                name="date"
+                name="scheduledDate"
                 type="date"
                 required
-                value={form.date}
+                value={form.scheduledDate}
                 onChange={handleChange}
                 className={inp}
               />
@@ -248,12 +269,12 @@ function LogMaintenanceModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={lbl}>Duration (hours)</label>
+              <label className={lbl}>Downtime (hours)</label>
               <input
-                name="duration"
+                name="downtime"
                 type="number"
                 min={0}
-                value={form.duration}
+                value={form.downtime}
                 onChange={handleChange}
                 className={inp}
               />
@@ -271,10 +292,10 @@ function LogMaintenanceModal({
             </div>
           </div>
           <div>
-            <label className={lbl}>Findings / notes</label>
+            <label className={lbl}>Notes</label>
             <textarea
-              name="findings"
-              value={form.findings ?? ""}
+              name="notes"
+              value={form.notes}
               onChange={handleChange}
               rows={3}
               placeholder="Additional findings or observations…"
@@ -296,7 +317,7 @@ function LogMaintenanceModal({
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || equipment.length === 0}
               className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-xl py-2.5 text-sm transition-colors flex items-center justify-center gap-2"
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
@@ -309,45 +330,93 @@ function LogMaintenanceModal({
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function MaintenancePage() {
+  const { profile, user } = useAuth();
   const [records, setRecords] = useState<MaintenanceRecord[]>([]);
-  const [apiStats, setApiStats] = useState<ApiStat[]>([]);
+  const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (hospitalId: string) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/maintenance");
-      const data = await res.json();
-      setRecords(data.records ?? []);
-      setApiStats(data.stats ?? []);
+      const [r, e] = await Promise.all([
+        getMaintenanceRecords(hospitalId),
+        getEquipment(hospitalId),
+      ]);
+      setRecords(r);
+      setEquipment(e);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    // Wait for auth to resolve
+    if (profile === undefined) return;
+    // Auth resolved — hospitalId either exists or doesn't
+    if (profile?.hospitalId) {
+      load(profile.hospitalId);
+    } else {
+      setLoading(false); // No hospitalId → show empty state immediately
+    }
+  }, [profile, load]);
+
+  async function handleStatusChange(id: string, status: MaintenanceStatus) {
+    await updateMaintenanceRecord(id, {
+      status,
+      completedDate: status === "completed" ? new Date() : null,
+    });
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+  }
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this maintenance record?")) return;
-    // Optimistic removal — add a DELETE endpoint to your route if you need persistence
-    setRecords((prev) => prev.filter((r) => r.id !== id));
+    setDeletingId(id);
+    try {
+      await deleteMaintenanceRecord(id);
+      setRecords((prev) => prev.filter((r) => r.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   const filtered = records.filter((r) => {
     const matchSearch =
-      r.equipment.toLowerCase().includes(search.toLowerCase()) ||
-      r.tech.toLowerCase().includes(search.toLowerCase()) ||
-      r.dept.toLowerCase().includes(search.toLowerCase());
+      r.equipmentName.toLowerCase().includes(search.toLowerCase()) ||
+      r.technicianName.toLowerCase().includes(search.toLowerCase());
     return matchSearch && (typeFilter === "all" || r.type === typeFilter);
   });
+
+  const stats = [
+    {
+      label: "Total Records",
+      value: records.length,
+      color: "bg-blue-500/15 text-blue-400",
+      icon: Wrench,
+    },
+    {
+      label: "Completed",
+      value: records.filter((r) => r.status === "completed").length,
+      color: "bg-emerald-500/15 text-emerald-400",
+      icon: CheckCircle,
+    },
+    {
+      label: "In Progress",
+      value: records.filter((r) => r.status === "in_progress").length,
+      color: "bg-indigo-500/15 text-indigo-400",
+      icon: Clock,
+    },
+    {
+      label: "Scheduled",
+      value: records.filter((r) => r.status === "scheduled").length,
+      color: "bg-amber-500/15 text-amber-400",
+      icon: Calendar,
+    },
+  ];
 
   return (
     <div className="space-y-5 fade-in">
@@ -362,15 +431,14 @@ export default function MaintenancePage() {
                 className="card p-4 h-20 animate-pulse bg-slate-900/40 border border-slate-800"
               />
             ))
-        : apiStats.map((s) => {
-            const cfg = STAT_ICONS[s.type] ?? STAT_ICONS.total;
-            const Icon = cfg.icon;
+        : stats.map((s) => {
+            const Icon = s.icon;
             return (
               <div key={s.label} className="card p-4 flex items-center gap-3">
                 <div
                   className={cn(
                     "w-10 h-10 rounded-lg flex items-center justify-center",
-                    cfg.color,
+                    s.color,
                   )}
                 >
                   <Icon size={18} />
@@ -387,177 +455,225 @@ export default function MaintenancePage() {
         }
       </div>
 
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
-            />
-            <input
-              className="pl-9 pr-3 py-2 text-sm w-60"
-              placeholder="Search records…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+      {/* Empty state */}
+      {!loading && records.length === 0 && (
+        <div className="card p-12 flex flex-col items-center justify-center gap-3 text-center">
+          <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center">
+            <Wrench size={20} className="text-slate-400" />
           </div>
-          <div className="flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg p-1">
-            {["all", ...TYPES].map((t) => (
-              <button
-                key={t}
-                onClick={() => setTypeFilter(t)}
-                className={cn(
-                  "px-3 py-1 rounded-md text-xs font-medium transition-all capitalize",
-                  typeFilter === t ?
-                    "bg-blue-500/20 text-blue-400 border border-blue-500/25"
-                  : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
-                )}
-              >
-                {t === "all" ? "All" : t}
-              </button>
-            ))}
-          </div>
+          <p className="text-sm font-medium text-[var(--text-primary)]">
+            No maintenance records yet
+          </p>
+          <p className="text-xs text-[var(--text-muted)] max-w-xs">
+            Click &ldquo;Log Maintenance&rdquo; to record your first activity.
+            {equipment.length === 0 && " You'll need to add equipment first."}
+          </p>
+          <button
+            onClick={() => setShowModal(true)}
+            className="btn-primary flex items-center gap-2 text-sm mt-2"
+          >
+            <Plus size={15} /> Log Maintenance
+          </button>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="btn-primary flex items-center gap-2 text-sm"
-        >
-          <Plus size={15} /> Log Maintenance
-        </button>
-      </div>
+      )}
+
+      {/* Toolbar */}
+      {(loading || records.length > 0) && (
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
+              />
+              <input
+                className="pl-9 pr-3 py-2 text-sm w-60"
+                placeholder="Search records…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg p-1">
+              {[
+                "all",
+                "preventive",
+                "corrective",
+                "emergency",
+                "inspection",
+              ].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTypeFilter(t)}
+                  className={cn(
+                    "px-3 py-1 rounded-md text-xs font-medium transition-all capitalize",
+                    typeFilter === t ?
+                      "bg-blue-500/20 text-blue-400 border border-blue-500/25"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
+                  )}
+                >
+                  {t === "all" ? "All" : t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => setShowModal(true)}
+            className="btn-primary flex items-center gap-2 text-sm"
+          >
+            <Plus size={15} /> Log Maintenance
+          </button>
+        </div>
+      )}
 
       {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">
-                {[
-                  "Equipment",
-                  "Dept",
-                  "Type",
-                  "Status",
-                  "Date",
-                  "Technician",
-                  "Duration",
-                  "Cost",
-                  "Actions",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)]">
-              {loading ?
-                Array(5)
-                  .fill(0)
-                  .map((_, i) => (
-                    <tr key={i}>
-                      {Array(9)
-                        .fill(0)
-                        .map((_, j) => (
-                          <td key={j} className="px-4 py-3">
-                            <div className="h-4 bg-[var(--bg-elevated)] rounded animate-pulse" />
-                          </td>
-                        ))}
-                    </tr>
-                  ))
-              : filtered.length === 0 ?
-                <tr>
-                  <td
-                    colSpan={9}
-                    className="text-center py-12 text-xs text-[var(--text-muted)]"
-                  >
-                    {records.length === 0 ?
-                      'No records yet. Click "Log Maintenance" to add one.'
-                    : "No records match your search."}
-                  </td>
-                </tr>
-              : filtered.map((r) => {
-                  const sc = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.scheduled;
-                  const StatusIcon = sc.icon;
-                  return (
-                    <tr
-                      key={r.id}
-                      className="hover:bg-[var(--bg-elevated)] transition-colors group"
+      {(loading || records.length > 0) && (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">
+                  {[
+                    "Equipment",
+                    "Type",
+                    "Status",
+                    "Date",
+                    "Technician",
+                    "Downtime",
+                    "Cost",
+                    "Actions",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
                     >
-                      <td className="px-4 py-3">
-                        <p className="text-xs font-medium text-[var(--text-primary)] max-w-[180px] truncate">
-                          {r.equipment}
-                        </p>
-                        {r.findings && (
-                          <p className="text-[11px] text-[var(--text-muted)] truncate max-w-[180px]">
-                            {r.findings}
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {loading ?
+                  Array(5)
+                    .fill(0)
+                    .map((_, i) => (
+                      <tr key={i}>
+                        {Array(8)
+                          .fill(0)
+                          .map((_, j) => (
+                            <td key={j} className="px-4 py-3">
+                              <div className="h-4 bg-[var(--bg-elevated)] rounded animate-pulse" />
+                            </td>
+                          ))}
+                      </tr>
+                    ))
+                : filtered.length === 0 ?
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="text-center py-12 text-xs text-[var(--text-muted)]"
+                    >
+                      No records match your search.
+                    </td>
+                  </tr>
+                : filtered.map((r) => {
+                    const sc =
+                      STATUS_CONFIG[r.status] ?? STATUS_CONFIG.scheduled;
+                    const StatusIcon = sc.icon;
+                    return (
+                      <tr
+                        key={r.id}
+                        className="hover:bg-[var(--bg-elevated)] transition-colors group"
+                      >
+                        <td className="px-4 py-3">
+                          <p className="text-xs font-medium text-[var(--text-primary)] max-w-[180px] truncate">
+                            {r.equipmentName}
                           </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
-                        {r.dept}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`badge ${TYPE_BADGE[r.type] ?? "badge-info"} capitalize`}
-                        >
-                          {r.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div
-                          className={`flex items-center gap-1.5 text-xs font-medium ${sc.cls}`}
-                        >
-                          <StatusIcon size={13} />
-                          {sc.label}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--text-secondary)] whitespace-nowrap">
-                        {fmt(r.date)}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
-                        {r.tech}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
-                        {r.duration ? `${r.duration}h` : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
-                        {formatCost(r.cost)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => handleDelete(r.id)}
-                            className="text-[10px] text-red-400 hover:text-red-300 font-medium transition-colors"
+                          <p className="text-[11px] text-[var(--text-muted)] truncate max-w-[180px]">
+                            {r.description}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`badge ${TYPE_BADGE[r.type] ?? "badge-info"} capitalize`}
                           >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              }
-            </tbody>
-          </table>
+                            {r.type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div
+                            className={`flex items-center gap-1.5 text-xs font-medium ${sc.cls}`}
+                          >
+                            <StatusIcon size={13} />
+                            {sc.label}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-[var(--text-secondary)] whitespace-nowrap">
+                          {fmt(r.scheduledDate)}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
+                          {r.technicianName}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
+                          {r.downtime ? `${r.downtime}h` : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
+                          {formatCost(r.cost)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {r.status === "scheduled" && (
+                              <button
+                                onClick={() =>
+                                  handleStatusChange(r.id, "in_progress")
+                                }
+                                className="text-[10px] text-blue-400 hover:text-blue-300 font-medium transition-colors"
+                              >
+                                Start
+                              </button>
+                            )}
+                            {r.status === "in_progress" && (
+                              <button
+                                onClick={() =>
+                                  handleStatusChange(r.id, "completed")
+                                }
+                                className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
+                              >
+                                Complete
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDelete(r.id)}
+                              disabled={deletingId === r.id}
+                              className="text-[10px] text-red-400 hover:text-red-300 font-medium transition-colors disabled:opacity-50"
+                            >
+                              {deletingId === r.id ? "…" : "Delete"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                }
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-[var(--border)]">
+            <p className="text-xs text-[var(--text-muted)]">
+              {loading ?
+                "Loading…"
+              : `Showing ${filtered.length} of ${records.length} records`}
+            </p>
+          </div>
         </div>
-        <div className="px-4 py-3 border-t border-[var(--border)]">
-          <p className="text-xs text-[var(--text-muted)]">
-            {loading ?
-              "Loading…"
-            : `Showing ${filtered.length} of ${records.length} records`}
-          </p>
-        </div>
-      </div>
+      )}
 
-      {/* Modal */}
-      {showModal && (
+      {showModal && profile?.hospitalId && user?.uid && (
         <LogMaintenanceModal
+          hospitalId={profile.hospitalId}
+          userId={user.uid}
+          equipment={equipment}
           onClose={() => setShowModal(false)}
-          onSaved={load}
+          onSaved={() => load(profile.hospitalId)}
         />
       )}
     </div>

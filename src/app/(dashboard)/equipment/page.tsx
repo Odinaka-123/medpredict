@@ -17,8 +17,6 @@ import {
   RiskLevel,
 } from "@/types";
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-
 const STATUS_CONFIG: Record<
   string,
   { label: string; dot: string; badge: string }
@@ -49,9 +47,7 @@ const CATEGORIES: EquipmentCategory[] = [
   "life_support",
   "other",
 ];
-
 const RISK_LEVELS: RiskLevel[] = ["low", "medium", "high", "critical"];
-
 const DEPARTMENTS = [
   "Radiology",
   "ICU",
@@ -67,9 +63,7 @@ const DEPARTMENTS = [
   "Other",
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function riskScore(level: RiskLevel): number {
+function riskScore(level: RiskLevel) {
   return (
     level === "critical" ? 90
     : level === "high" ? 65
@@ -103,7 +97,7 @@ function RiskBar({ level }: { level: RiskLevel }) {
   );
 }
 
-function formatDate(date: Date | null): string {
+function formatDate(date: Date | null) {
   if (!date) return "—";
   return date.toLocaleDateString("en-NG", {
     day: "numeric",
@@ -112,20 +106,21 @@ function formatDate(date: Date | null): string {
   });
 }
 
-function isOverdue(date: Date | null): boolean {
-  if (!date) return false;
-  return date < new Date();
+function isOverdue(date: Date | null) {
+  return date ? date < new Date() : false;
 }
 
-// ─── Add Equipment Modal ──────────────────────────────────────────────────────
+// ─── Add Modal ────────────────────────────────────────────────────────────────
 
-interface AddModalProps {
+function AddEquipmentModal({
+  hospitalId,
+  onClose,
+  onSaved,
+}: {
   hospitalId: string;
   onClose: () => void;
   onSaved: () => void;
-}
-
-function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
+}) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -168,6 +163,11 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
     }
   }
 
+  const inp =
+    "w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition";
+  const lbl =
+    "block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -180,7 +180,6 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
         className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg-base)]"
         style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}
       >
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
           <div>
             <h2 className="text-base font-bold text-[var(--text-primary)]">
@@ -210,34 +209,26 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
             </svg>
           </button>
         </div>
-
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Name */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-              Equipment Name *
-            </label>
+            <label className={lbl}>Equipment Name *</label>
             <input
               required
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
               placeholder="e.g. Siemens ACUSON X700 Ultrasound"
-              className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition"
+              className={inp}
             />
           </div>
-
-          {/* Category + Department */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Category *
-              </label>
+              <label className={lbl}>Category *</label>
               <select
                 value={form.category}
                 onChange={(e) =>
                   set("category", e.target.value as EquipmentCategory)
                 }
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50 transition capitalize"
+                className={inp}
               >
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -247,13 +238,11 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Department *
-              </label>
+              <label className={lbl}>Department *</label>
               <select
                 value={form.department}
                 onChange={(e) => set("department", e.target.value)}
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50 transition"
+                className={inp}
               >
                 {DEPARTMENTS.map((d) => (
                   <option key={d} value={d}>
@@ -263,71 +252,55 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
               </select>
             </div>
           </div>
-
-          {/* Manufacturer + Model */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Manufacturer
-              </label>
+              <label className={lbl}>Manufacturer</label>
               <input
                 value={form.manufacturer}
                 onChange={(e) => set("manufacturer", e.target.value)}
                 placeholder="e.g. Siemens"
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50 transition"
+                className={inp}
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Model
-              </label>
+              <label className={lbl}>Model</label>
               <input
                 value={form.model}
                 onChange={(e) => set("model", e.target.value)}
                 placeholder="e.g. ACUSON X700"
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50 transition"
+                className={inp}
               />
             </div>
           </div>
-
-          {/* Serial + Location */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Serial Number
-              </label>
+              <label className={lbl}>Serial Number</label>
               <input
                 value={form.serialNumber}
                 onChange={(e) => set("serialNumber", e.target.value)}
                 placeholder="e.g. SN-2024-001"
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50 transition"
+                className={inp}
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Location
-              </label>
+              <label className={lbl}>Location</label>
               <input
                 value={form.location}
                 onChange={(e) => set("location", e.target.value)}
                 placeholder="e.g. Room 101"
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50 transition"
+                className={inp}
               />
             </div>
           </div>
-
-          {/* Status + Risk */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Status *
-              </label>
+              <label className={lbl}>Status *</label>
               <select
                 value={form.status}
                 onChange={(e) =>
                   set("status", e.target.value as EquipmentStatus)
                 }
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50 transition capitalize"
+                className={inp}
               >
                 {(
                   [
@@ -344,13 +317,11 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-                Risk Level *
-              </label>
+              <label className={lbl}>Risk Level *</label>
               <select
                 value={form.riskLevel}
                 onChange={(e) => set("riskLevel", e.target.value as RiskLevel)}
-                className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50 transition capitalize"
+                className={inp}
               >
                 {RISK_LEVELS.map((r) => (
                   <option key={r} value={r}>
@@ -360,35 +331,26 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
               </select>
             </div>
           </div>
-
-          {/* Usage hours */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-              Usage Hours
-            </label>
+            <label className={lbl}>Usage Hours</label>
             <input
               type="number"
               min={0}
               value={form.usageHours}
               onChange={(e) => set("usageHours", Number(e.target.value))}
-              className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50 transition"
+              className={inp}
             />
           </div>
-
-          {/* Notes */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
-              Notes
-            </label>
+            <label className={lbl}>Notes</label>
             <textarea
               value={form.notes}
               onChange={(e) => set("notes", e.target.value)}
               rows={2}
               placeholder="Any additional notes…"
-              className="w-full px-3 py-2.5 text-sm bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50 transition resize-none"
+              className={`${inp} resize-none`}
             />
           </div>
-
           {error && (
             <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl px-4 py-3">
               <svg
@@ -407,8 +369,6 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
               {error}
             </div>
           )}
-
-          {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -420,7 +380,7 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-2"
+              className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors flex items-center justify-center gap-2"
             >
               {saving && (
                 <svg
@@ -452,7 +412,7 @@ function AddEquipmentModal({ hospitalId, onClose, onSaved }: AddModalProps) {
   );
 }
 
-// ─── Delete Confirm Modal ─────────────────────────────────────────────────────
+// ─── Delete Modal ─────────────────────────────────────────────────────────────
 
 function DeleteModal({
   equipment,
@@ -511,7 +471,7 @@ function DeleteModal({
           <span className="text-[var(--text-primary)] font-medium">
             {equipment.name}
           </span>
-          ? This action cannot be undone.
+          ? This cannot be undone.
         </p>
         <div className="flex gap-3">
           <button
@@ -558,7 +518,6 @@ function DeleteModal({
 
 export default function EquipmentPage() {
   const { profile } = useAuth();
-
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -568,28 +527,32 @@ export default function EquipmentPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
-  const load = useCallback(async () => {
-    if (!profile?.hospitalId) return;
+  const load = useCallback(async (hospitalId: string) => {
     setLoading(true);
     try {
-      const data = await getEquipment(profile.hospitalId);
+      const data = await getEquipment(hospitalId);
       setEquipment(data);
     } finally {
       setLoading(false);
     }
-  }, [profile?.hospitalId]);
+  }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    // Wait for auth to resolve — profile is undefined while loading
+    if (profile === undefined) return;
+    if (profile?.hospitalId) {
+      load(profile.hospitalId);
+    } else {
+      setLoading(false); // Auth resolved, no hospitalId → show empty state
+    }
+  }, [profile, load]);
 
   const filtered = equipment.filter((e) => {
     const matchSearch =
       e.name.toLowerCase().includes(search.toLowerCase()) ||
       e.department.toLowerCase().includes(search.toLowerCase()) ||
       e.manufacturer.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === "all" || e.status === statusFilter;
-    return matchSearch && matchStatus;
+    return matchSearch && (statusFilter === "all" || e.status === statusFilter);
   });
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -650,7 +613,7 @@ export default function EquipmentPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={load}
+            onClick={() => profile?.hospitalId && load(profile.hospitalId)}
             className="w-9 h-9 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             title="Refresh"
           >
@@ -707,13 +670,35 @@ export default function EquipmentPage() {
                   ))
               : paginated.length === 0 ?
                 <tr>
-                  <td
-                    colSpan={8}
-                    className="px-4 py-12 text-center text-sm text-[var(--text-muted)]"
-                  >
-                    {search || statusFilter !== "all" ?
-                      "No equipment matches your filters."
-                    : "No equipment added yet."}
+                  <td colSpan={8} className="px-4 py-16 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-[var(--bg-elevated)] flex items-center justify-center">
+                        <svg
+                          className="w-5 h-5 text-[var(--text-muted)]"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={1.5}
+                            d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"
+                          />
+                        </svg>
+                      </div>
+                      <p className="text-sm font-medium text-[var(--text-primary)]">
+                        {search || statusFilter !== "all" ?
+                          "No equipment matches your filters."
+                        : "No equipment added yet."}
+                      </p>
+                      {!search && statusFilter === "all" && (
+                        <p className="text-xs text-[var(--text-muted)] max-w-xs">
+                          Click &ldquo;Add Equipment&rdquo; to register your
+                          first device.
+                        </p>
+                      )}
+                    </div>
                   </td>
                 </tr>
               : paginated.map((eq) => {
@@ -726,15 +711,13 @@ export default function EquipmentPage() {
                       className="hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer group"
                     >
                       <td className="px-4 py-3">
-                        <div>
-                          <p className="font-medium text-[var(--text-primary)] text-xs">
-                            {eq.name}
-                          </p>
-                          <p className="text-[11px] text-[var(--text-muted)] capitalize">
-                            {eq.category.replace("_", " ")} · {eq.failureCount}{" "}
-                            failure{eq.failureCount !== 1 ? "s" : ""}
-                          </p>
-                        </div>
+                        <p className="font-medium text-[var(--text-primary)] text-xs">
+                          {eq.name}
+                        </p>
+                        <p className="text-[11px] text-[var(--text-muted)] capitalize">
+                          {eq.category.replace("_", " ")} · {eq.failureCount}{" "}
+                          failure{eq.failureCount !== 1 ? "s" : ""}
+                        </p>
                       </td>
                       <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
                         {eq.department}
@@ -774,7 +757,6 @@ export default function EquipmentPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {/* Quick status toggle */}
                           <select
                             value={eq.status}
                             onChange={(e) =>
@@ -834,13 +816,12 @@ export default function EquipmentPage() {
             </tbody>
           </table>
         </div>
-
-        {/* Footer */}
         <div className="px-4 py-3 border-t border-[var(--border)] flex items-center justify-between">
           <p className="text-xs text-[var(--text-muted)]">
-            Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–
-            {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}{" "}
-            devices
+            {loading ?
+              "Loading…"
+            : `Showing ${Math.min((page - 1) * PAGE_SIZE + 1, filtered.length || 1)}–${Math.min(page * PAGE_SIZE, filtered.length)} of ${filtered.length} devices`
+            }
           </p>
           {totalPages > 1 && (
             <div className="flex gap-1">
@@ -863,19 +844,18 @@ export default function EquipmentPage() {
         </div>
       </div>
 
-      {/* Modals */}
       {showAddModal && profile?.hospitalId && (
         <AddEquipmentModal
           hospitalId={profile.hospitalId}
           onClose={() => setShowAddModal(false)}
-          onSaved={load}
+          onSaved={() => load(profile.hospitalId)}
         />
       )}
       {deleteTarget && (
         <DeleteModal
           equipment={deleteTarget}
           onClose={() => setDeleteTarget(null)}
-          onDeleted={load}
+          onDeleted={() => load(profile!.hospitalId)}
         />
       )}
     </div>
