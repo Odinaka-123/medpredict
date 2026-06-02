@@ -88,7 +88,7 @@ function RiskBar({ level }: { level: RiskLevel }) {
         />
       </div>
       <span
-        className="text-xs font-semibold w-16 text-right capitalize"
+        className="text-xs font-semibold w-14 text-right capitalize"
         style={{ color }}
       >
         {level}
@@ -108,6 +108,117 @@ function formatDate(date: Date | null) {
 
 function isOverdue(date: Date | null) {
   return date ? date < new Date() : false;
+}
+
+// ─── Mobile Equipment Card ────────────────────────────────────────────────────
+
+function EquipmentCard({
+  eq,
+  onStatusChange,
+  onDelete,
+}: {
+  eq: Equipment;
+  onStatusChange: (id: string, status: EquipmentStatus) => void;
+  onDelete: (eq: Equipment) => void;
+}) {
+  const sc = STATUS_CONFIG[eq.status] ?? STATUS_CONFIG.operational;
+  const overdue = isOverdue(eq.nextMaintenanceDate);
+
+  return (
+    <div className="card p-4 space-y-3">
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-[var(--text-primary)] text-sm truncate">
+            {eq.name}
+          </p>
+          <p className="text-[11px] text-[var(--text-muted)] capitalize mt-0.5">
+            {eq.category.replace("_", " ")} · {eq.department}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+          <span className={`badge ${sc.badge} text-[10px]`}>{sc.label}</span>
+        </div>
+      </div>
+
+      {/* Risk bar */}
+      <RiskBar level={eq.riskLevel} />
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <div>
+          <p className="text-[var(--text-muted)]">Usage</p>
+          <p className="font-medium text-[var(--text-secondary)] mt-0.5">
+            {eq.usageHours.toLocaleString()} hrs
+          </p>
+        </div>
+        <div>
+          <p className="text-[var(--text-muted)]">Last service</p>
+          <p className="font-medium text-[var(--text-secondary)] mt-0.5">
+            {formatDate(eq.lastMaintenanceDate)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[var(--text-muted)]">Next due</p>
+          <p
+            className={cn(
+              "font-medium mt-0.5",
+              overdue ? "text-red-400" : "text-[var(--text-secondary)]",
+            )}
+          >
+            {overdue ? "Overdue" : formatDate(eq.nextMaintenanceDate)}
+          </p>
+        </div>
+      </div>
+
+      {/* Actions row */}
+      <div className="flex items-center gap-2 pt-1 border-t border-[var(--border)]">
+        <select
+          value={eq.status}
+          onChange={(e) =>
+            onStatusChange(eq.id, e.target.value as EquipmentStatus)
+          }
+          className="flex-1 text-[11px] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--text-secondary)] capitalize cursor-pointer"
+        >
+          {(
+            [
+              "operational",
+              "maintenance",
+              "failed",
+              "decommissioned",
+            ] as EquipmentStatus[]
+          ).map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => onDelete(eq)}
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors border border-[var(--border)]"
+        >
+          <svg
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+            />
+          </svg>
+        </button>
+        <button className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors border border-[var(--border)]">
+          <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ─── Add Modal ────────────────────────────────────────────────────────────────
@@ -170,17 +281,24 @@ function AddEquipmentModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
       style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
+      {/* On mobile: bottom sheet. On sm+: centered modal */}
       <div
-        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg-base)]"
+        className="w-full sm:max-w-lg max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto
+                    rounded-t-2xl sm:rounded-2xl border border-[var(--border)] bg-[var(--bg-base)]"
         style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}
       >
-        <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
+        {/* Drag handle — mobile only */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden">
+          <div className="w-10 h-1 rounded-full bg-[var(--border-strong)]" />
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
           <div>
             <h2 className="text-base font-bold text-[var(--text-primary)]">
               Add Equipment
@@ -209,7 +327,8 @@ function AddEquipmentModal({
             </svg>
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div>
             <label className={lbl}>Equipment Name *</label>
             <input
@@ -369,7 +488,7 @@ function AddEquipmentModal({
               {error}
             </div>
           )}
-          <div className="flex gap-3 pt-2">
+          <div className="flex gap-3 pt-2 pb-1">
             <button
               type="button"
               onClick={onClose}
@@ -438,16 +557,21 @@ function DeleteModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
       style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--bg-base)] p-6"
+        className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl border border-[var(--border)] bg-[var(--bg-base)] p-6"
         style={{ boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}
       >
+        {/* Drag handle — mobile only */}
+        <div className="flex justify-center -mt-2 mb-4 sm:hidden">
+          <div className="w-10 h-1 rounded-full bg-[var(--border-strong)]" />
+        </div>
+
         <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-4">
           <svg
             className="w-6 h-6 text-red-400"
@@ -538,12 +662,11 @@ export default function EquipmentPage() {
   }, []);
 
   useEffect(() => {
-    // Wait for auth to resolve — profile is undefined while loading
     if (profile === undefined) return;
     if (profile?.hospitalId) {
       load(profile.hospitalId);
     } else {
-      setLoading(false); // Auth resolved, no hospitalId → show empty state
+      setLoading(false);
     }
   }, [profile, load]);
 
@@ -566,11 +689,12 @@ export default function EquipmentPage() {
   }
 
   return (
-    <div className="space-y-5 fade-in">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex items-center gap-3 flex-1 flex-wrap">
-          <div className="relative flex-1 min-w-48 max-w-xs">
+    <div className="space-y-4 fade-in">
+      {/* ── Toolbar ── */}
+      <div className="flex flex-col gap-3">
+        {/* Row 1: search + add button */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
             <Search
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
@@ -585,7 +709,26 @@ export default function EquipmentPage() {
               }}
             />
           </div>
-          <div className="flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg p-1 flex-wrap">
+          <button
+            onClick={() => profile?.hospitalId && load(profile.hospitalId)}
+            className="w-9 h-9 shrink-0 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="btn-primary shrink-0 flex items-center gap-1.5 text-sm px-3 py-2"
+          >
+            <Plus size={15} />
+            <span className="hidden sm:inline">Add Equipment</span>
+            <span className="sm:hidden">Add</span>
+          </button>
+        </div>
+
+        {/* Row 2: status filter pills — horizontally scrollable on mobile */}
+        <div className="overflow-x-auto -mx-1 px-1">
+          <div className="flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg p-1 w-max min-w-full sm:w-auto sm:min-w-0">
             {[
               "all",
               "operational",
@@ -600,7 +743,7 @@ export default function EquipmentPage() {
                   setPage(1);
                 }}
                 className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-all capitalize",
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-all capitalize whitespace-nowrap",
                   statusFilter === s ?
                     "bg-blue-500/20 text-blue-400 border border-blue-500/25"
                   : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
@@ -611,25 +754,66 @@ export default function EquipmentPage() {
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => profile?.hospitalId && load(profile.hospitalId)}
-            className="w-9 h-9 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="btn-primary flex items-center gap-2 text-sm"
-          >
-            <Plus size={15} /> Add Equipment
-          </button>
-        </div>
       </div>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
+      {/* ── Mobile card list (< md) ── */}
+      <div className="md:hidden space-y-3">
+        {loading ?
+          Array(4)
+            .fill(0)
+            .map((_, i) => (
+              <div key={i} className="card p-4 space-y-3">
+                <div className="h-4 w-2/3 bg-[var(--bg-elevated)] rounded animate-pulse" />
+                <div className="h-3 w-1/2 bg-[var(--bg-elevated)] rounded animate-pulse" />
+                <div className="h-2 bg-[var(--bg-elevated)] rounded animate-pulse" />
+                <div className="grid grid-cols-3 gap-2">
+                  {Array(3)
+                    .fill(0)
+                    .map((_, j) => (
+                      <div
+                        key={j}
+                        className="h-8 bg-[var(--bg-elevated)] rounded animate-pulse"
+                      />
+                    ))}
+                </div>
+              </div>
+            ))
+        : paginated.length === 0 ?
+          <div className="card p-12 flex flex-col items-center gap-3 text-center">
+            <div className="w-12 h-12 rounded-xl bg-[var(--bg-elevated)] flex items-center justify-center">
+              <svg
+                className="w-5 h-5 text-[var(--text-muted)]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"
+                />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {search || statusFilter !== "all" ?
+                "No equipment matches your filters."
+              : "No equipment added yet."}
+            </p>
+          </div>
+        : paginated.map((eq) => (
+            <EquipmentCard
+              key={eq.id}
+              eq={eq}
+              onStatusChange={handleStatusChange}
+              onDelete={setDeleteTarget}
+            />
+          ))
+        }
+      </div>
+
+      {/* ── Desktop table (≥ md) ── */}
+      <div className="hidden md:block card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -816,7 +1000,9 @@ export default function EquipmentPage() {
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-3 border-t border-[var(--border)] flex items-center justify-between">
+
+        {/* Pagination */}
+        <div className="px-4 py-3 border-t border-[var(--border)] flex items-center justify-between flex-wrap gap-2">
           <p className="text-xs text-[var(--text-muted)]">
             {loading ?
               "Loading…"
@@ -843,6 +1029,31 @@ export default function EquipmentPage() {
           )}
         </div>
       </div>
+
+      {/* Mobile pagination */}
+      {!loading && totalPages > 1 && (
+        <div className="md:hidden flex items-center justify-between px-1">
+          <p className="text-xs text-[var(--text-muted)]">
+            Page {page} of {totalPages}
+          </p>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)] disabled:opacity-40 transition-colors"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)] disabled:opacity-40 transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {showAddModal && profile?.hospitalId && (
         <AddEquipmentModal
