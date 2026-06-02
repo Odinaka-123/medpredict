@@ -262,7 +262,7 @@ export default function SettingsPage() {
       }
 
       flash();
-    } catch (e) {
+    } catch {
       flash("Failed to save settings. Please try again.");
     }
   }
