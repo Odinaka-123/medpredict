@@ -4,6 +4,7 @@ import { User } from "firebase/auth";
 import { onAuthChange, getUserProfile } from "@/lib/auth";
 import { HospitalUser } from "@/types";
 
+
 interface AuthContextType {
   user: User | null;
   profile: HospitalUser | null;

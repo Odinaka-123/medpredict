@@ -1,524 +1,616 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
-  FileBarChart2,
-  Download,
-  Calendar,
-  TrendingDown,
-  TrendingUp,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  Wrench,
+  Bell,
+  Shield,
+  Building2,
+  Cpu,
+  User,
+  Mail,
+  Phone,
+  Save,
   ChevronRight,
-  Filter,
-  Loader2,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  Legend,
-} from "recharts";
 
-// ─── Component Types ──────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface KPIItem {
-  month: string;
-  uptime: number;
-  mttr: number;
-  preventive: number;
-  cost: number;
+interface ToggleProps {
+  enabled: boolean;
+  onChange: (v: boolean) => void;
 }
 
-interface DeptItem {
-  dept: string;
-  uptime: number;
-  failures: number;
-  cost: number;
-}
-
-interface SummaryCard {
-  label: string;
-  value: string;
-  sub: string;
-  isNegativeTrend: boolean;
-  color: string;
-  type: "uptime" | "mttr" | "preventive" | "corrective";
-}
-
-interface TooltipPayload {
-  name: string;
-  value: number;
-  color: string;
-}
-
-// Map key types securely to lucide component instances
-const ICON_MAP = {
-  uptime: CheckCircle2,
-  mttr: Clock,
-  preventive: Wrench,
-  corrective: AlertTriangle,
-};
-
-const RECENT_REPORTS = [
-  {
-    id: "r-001",
-    title: "May 2026 Equipment Health Report",
-    date: "May 22, 2026",
-    type: "Monthly",
-    pages: 14,
-  },
-  {
-    id: "r-002",
-    title: "Q1 2026 Maintenance Summary",
-    date: "Apr 01, 2026",
-    type: "Quarterly",
-    pages: 28,
-  },
-  {
-    id: "r-003",
-    title: "ICU Equipment Audit",
-    date: "Mar 15, 2026",
-    type: "Audit",
-    pages: 9,
-  },
-  {
-    id: "r-004",
-    title: "Laboratory Equipment Risk Assessment",
-    date: "Mar 01, 2026",
-    type: "Risk",
-    pages: 11,
-  },
-];
-
-// ─── Presentation Tooltip ─────────────────────────────────────────────────────
-
-const CustomTooltip = ({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: TooltipPayload[];
-  label?: string;
-}) => {
-  if (!active || !payload?.length) return null;
+function Toggle({ enabled, onChange }: ToggleProps) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs shadow-xl text-white">
-      <p className="font-medium mb-1 text-slate-400">{label}</p>
-      {payload.map((p) => (
-        <p key={p.name} style={{ color: p.color }} className="py-0.5">
-          {p.name}: <strong className="text-white">{p.value}</strong>
-        </p>
-      ))}
+    <button
+      onClick={() => onChange(!enabled)}
+      className={cn(
+        "relative w-9 h-5 rounded-full transition-colors flex-shrink-0",
+        enabled ? "bg-blue-500" : (
+          "bg-[var(--bg-elevated)] border border-[var(--border)]"
+        ),
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+          enabled ? "translate-x-4" : "translate-x-0.5",
+        )}
+      />
+    </button>
+  );
+}
+
+// ─── Section wrapper ──────────────────────────────────────────────────────────
+
+function Section({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-5 py-4 border-b border-[var(--border)] flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/20 flex items-center justify-center">
+          <Icon size={15} className="text-blue-400" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+            {title}
+          </h2>
+          <p className="text-[11px] text-[var(--text-muted)]">{description}</p>
+        </div>
+      </div>
+      <div className="divide-y divide-[var(--border)]">{children}</div>
     </div>
   );
-};
+}
 
-const REPORT_TYPE_BADGE: Record<string, string> = {
-  Monthly: "bg-blue-500/10 text-blue-400 border border-blue-500/20",
-  Quarterly: "bg-purple-500/10 text-purple-400 border border-purple-500/20",
-  Audit: "bg-amber-500/10 text-amber-400 border border-amber-500/20",
-  Risk: "bg-red-500/10 text-red-400 border border-red-500/20",
-};
-
-export default function ReportsPage() {
-  const [period, setPeriod] = useState("7m");
-  const [monthlyKPIs, setMonthlyKPIs] = useState<KPIItem[]>([]);
-  const [deptData, setDeptData] = useState<DeptItem[]>([]);
-  const [summaryCards, setSummaryCards] = useState<SummaryCard[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function fetchDashboardData() {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch(`/api/reports/stats?period=${period}`);
-        if (!response.ok) throw new Error("Failed to capture updated metrics.");
-
-        const data = await response.json();
-        setMonthlyKPIs(data.monthlyKPIs);
-        setDeptData(data.deptData);
-        setSummaryCards(data.summaryCards);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "An unknown error occurred",
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchDashboardData();
-  }, [period]);
-
-  if (error) {
-    return (
-      <div className="p-8 text-center bg-red-500/10 rounded-xl border border-red-500/20 text-red-400">
-        <AlertTriangle className="mx-auto mb-2" size={24} />
-        <p className="font-semibold">Error Loading Performance Metrics</p>
-        <p className="text-sm opacity-80">{error}</p>
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between px-5 py-3.5 gap-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-[var(--text-primary)]">
+          {label}
+        </p>
+        {description && (
+          <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+            {description}
+          </p>
+        )}
       </div>
-    );
-  }
+      <div className="flex-shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      className="text-xs text-right bg-transparent border-0 outline-none text-[var(--text-secondary)] placeholder:text-[var(--text-muted)] w-48 focus:text-[var(--text-primary)]"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function SelectInput({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
+  return (
+    <select
+      className="text-xs bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[var(--text-secondary)] outline-none cursor-pointer"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState("facility");
+
+  // Facility
+  const [facilityName, setFacilityName] = useState(
+    "Lagos University Teaching Hospital",
+  );
+  const [facilityType, setFacilityType] = useState("Tertiary Hospital");
+  const [adminEmail, setAdminEmail] = useState("biomedical@luth.gov.ng");
+  const [adminPhone, setAdminPhone] = useState("+234 802 000 0001");
+  const [timezone, setTimezone] = useState("Africa/Lagos");
+
+  // Notifications
+  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [smsAlerts, setSmsAlerts] = useState(true);
+  const [criticalOnly, setCriticalOnly] = useState(false);
+  const [dailyDigest, setDailyDigest] = useState(true);
+  const [maintenanceReminders, setMaintenanceReminders] = useState(true);
+  const [weeklyReport, setWeeklyReport] = useState(false);
+
+  // ML Model
+  const [autoRetrain, setAutoRetrain] = useState(true);
+  const [riskThreshold, setRiskThreshold] = useState("70");
+  const [predictionWindow, setPredictionWindow] = useState("30 days");
+  const [dataCollection, setDataCollection] = useState(true);
+
+  // Security
+  const [twoFactor, setTwoFactor] = useState(false);
+  const [sessionTimeout, setSessionTimeout] = useState("8 hours");
+  const [auditLog, setAuditLog] = useState(true);
+
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const TABS = [
+    { id: "facility", icon: Building2, label: "Facility" },
+    { id: "notifications", icon: Bell, label: "Notifications" },
+    { id: "model", icon: Cpu, label: "ML Model" },
+    { id: "security", icon: Shield, label: "Security" },
+    { id: "account", icon: User, label: "Account" },
+  ];
 
   return (
-    <div className="space-y-5">
-      {/* KPI summary strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {isLoading ?
-          Array.from({ length: 4 }).map((_, idx) => (
-            <div
-              key={idx}
-              className="bg-slate-900/50 border border-slate-800 animate-pulse rounded-xl h-32"
-            />
-          ))
-        : summaryCards.map(
-            ({ label, value, sub, isNegativeTrend, color, type }) => {
-              const Icon = ICON_MAP[type] || CheckCircle2;
-              return (
-                <div
-                  key={label}
-                  className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div
-                      className={cn(
-                        "w-9 h-9 rounded-lg flex items-center justify-center",
-                        color,
-                      )}
-                    >
-                      <Icon size={16} />
-                    </div>
-                    <span
-                      className={cn(
-                        "text-xs font-medium flex items-center gap-0.5",
-                        isNegativeTrend ? "text-red-400" : "text-emerald-400",
-                      )}
-                    >
-                      {isNegativeTrend ?
-                        <TrendingUp size={11} />
-                      : <TrendingDown size={11} />}
-                      {sub.split(" ")[0]}
-                    </span>
-                  </div>
-                  <p className="text-2xl font-bold text-white">{value}</p>
-                  <p className="text-xs font-medium text-slate-400 mt-0.5">
-                    {label}
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">{sub}</p>
-                </div>
-              );
-            },
-          )
-        }
+    <div className="space-y-5 fade-in">
+      {/* Tab nav */}
+      <div className="flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-1 w-fit">
+        {TABS.map(({ id, icon: Icon, label }) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium transition-all",
+              activeTab === id ?
+                "bg-blue-500/20 text-blue-400 border border-blue-500/25"
+              : "text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]",
+            )}
+          >
+            <Icon size={13} />
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Main Analysis Engine Visuals */}
-      {isLoading ?
-        <div className="flex items-center justify-center py-20 bg-slate-900/20 border border-slate-800/60 rounded-xl">
-          <Loader2 className="animate-spin text-blue-500 mr-2" size={20} />
-          <span className="text-sm text-slate-400">
-            Refreshing analysis visual systems...
-          </span>
+      {/* Facility Settings */}
+      {activeTab === "facility" && (
+        <div className="space-y-4">
+          <Section
+            icon={Building2}
+            title="Facility Information"
+            description="Basic details about your healthcare facility"
+          >
+            <SettingRow label="Facility Name">
+              <TextInput value={facilityName} onChange={setFacilityName} />
+            </SettingRow>
+            <SettingRow label="Facility Type">
+              <SelectInput
+                value={facilityType}
+                onChange={setFacilityType}
+                options={[
+                  "Tertiary Hospital",
+                  "Secondary Hospital",
+                  "Primary Health Centre",
+                  "Specialist Clinic",
+                ]}
+              />
+            </SettingRow>
+            <SettingRow label="Timezone">
+              <SelectInput
+                value={timezone}
+                onChange={setTimezone}
+                options={["Africa/Lagos", "Africa/Abuja", "UTC"]}
+              />
+            </SettingRow>
+          </Section>
+
+          <Section
+            icon={User}
+            title="Administrator Contact"
+            description="Primary contact for system alerts and communications"
+          >
+            <SettingRow
+              label="Email Address"
+              description="Receives system alerts and reports"
+            >
+              <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+                <Mail size={12} />
+                <TextInput value={adminEmail} onChange={setAdminEmail} />
+              </div>
+            </SettingRow>
+            <SettingRow
+              label="Phone Number"
+              description="For SMS alerts on critical failures"
+            >
+              <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+                <Phone size={12} />
+                <TextInput value={adminPhone} onChange={setAdminPhone} />
+              </div>
+            </SettingRow>
+          </Section>
+
+          <Section
+            icon={Cpu}
+            title="Equipment Thresholds"
+            description="Set operational parameters for the facility"
+          >
+            <SettingRow
+              label="Max Equipment Age Alert"
+              description="Flag equipment older than this"
+            >
+              <SelectInput
+                value="10 years"
+                onChange={() => {}}
+                options={["5 years", "8 years", "10 years", "15 years"]}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Usage Hour Alert"
+              description="Alert when usage exceeds this threshold"
+            >
+              <SelectInput
+                value="10,000 hrs"
+                onChange={() => {}}
+                options={["5,000 hrs", "8,000 hrs", "10,000 hrs", "15,000 hrs"]}
+              />
+            </SettingRow>
+          </Section>
         </div>
-      : <>
-          {/* Charts row */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-            {/* Uptime + MTTR trend */}
-            <div className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <div className="flex items-center justify-between mb-4">
+      )}
+
+      {/* Notifications */}
+      {activeTab === "notifications" && (
+        <div className="space-y-4">
+          <Section
+            icon={Bell}
+            title="Alert Channels"
+            description="Choose how you receive maintenance and failure alerts"
+          >
+            <SettingRow
+              label="Email Alerts"
+              description="Send alerts to the administrator email"
+            >
+              <Toggle enabled={emailAlerts} onChange={setEmailAlerts} />
+            </SettingRow>
+            <SettingRow
+              label="SMS Alerts"
+              description="Send critical alerts via SMS"
+            >
+              <Toggle enabled={smsAlerts} onChange={setSmsAlerts} />
+            </SettingRow>
+            <SettingRow
+              label="Critical Alerts Only"
+              description="Suppress warning-level notifications"
+            >
+              <Toggle enabled={criticalOnly} onChange={setCriticalOnly} />
+            </SettingRow>
+          </Section>
+
+          <Section
+            icon={Mail}
+            title="Scheduled Reports"
+            description="Automatically delivered reports and summaries"
+          >
+            <SettingRow
+              label="Daily Digest"
+              description="Summary of equipment status each morning"
+            >
+              <Toggle enabled={dailyDigest} onChange={setDailyDigest} />
+            </SettingRow>
+            <SettingRow
+              label="Maintenance Reminders"
+              description="48h notice before scheduled maintenance"
+            >
+              <Toggle
+                enabled={maintenanceReminders}
+                onChange={setMaintenanceReminders}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Weekly Report"
+              description="Full performance report every Monday"
+            >
+              <Toggle enabled={weeklyReport} onChange={setWeeklyReport} />
+            </SettingRow>
+            <SettingRow label="Report Delivery Time">
+              <SelectInput
+                value="07:00 AM"
+                onChange={() => {}}
+                options={["06:00 AM", "07:00 AM", "08:00 AM", "09:00 AM"]}
+              />
+            </SettingRow>
+          </Section>
+        </div>
+      )}
+
+      {/* ML Model */}
+      {activeTab === "model" && (
+        <div className="space-y-4">
+          {/* Model status card */}
+          <div className="card p-5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+              <Cpu size={20} className="text-blue-400" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  MedPredict ML v2.1
+                </p>
+                <span className="badge badge-success">Active</span>
+              </div>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                Last retrained: May 15, 2025 · Accuracy: 91.4% · Dataset: 4.2M
+                records
+              </p>
+            </div>
+            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+              Retrain Now <ChevronRight size={12} />
+            </button>
+          </div>
+
+          <Section
+            icon={Cpu}
+            title="Prediction Settings"
+            description="Configure how the AI model generates risk predictions"
+          >
+            <SettingRow
+              label="Auto-Retrain Model"
+              description="Automatically retrain monthly with new data"
+            >
+              <Toggle enabled={autoRetrain} onChange={setAutoRetrain} />
+            </SettingRow>
+            <SettingRow
+              label="Risk Alert Threshold"
+              description="Minimum score to trigger a prediction alert"
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={50}
+                  max={90}
+                  value={riskThreshold}
+                  onChange={(e) => setRiskThreshold(e.target.value)}
+                  className="w-24 accent-blue-500"
+                />
+                <span className="text-xs font-bold text-blue-400 w-8">
+                  {riskThreshold}%
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow
+              label="Prediction Window"
+              description="How far ahead to forecast failure probability"
+            >
+              <SelectInput
+                value={predictionWindow}
+                onChange={setPredictionWindow}
+                options={["7 days", "14 days", "30 days", "60 days", "90 days"]}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Anonymous Data Sharing"
+              description="Share anonymised data to improve the model"
+            >
+              <Toggle enabled={dataCollection} onChange={setDataCollection} />
+            </SettingRow>
+          </Section>
+
+          <div className="card p-4 flex items-start gap-3 border-amber-500/20 bg-amber-500/5">
+            <AlertTriangle
+              size={15}
+              className="text-amber-400 flex-shrink-0 mt-0.5"
+            />
+            <div>
+              <p className="text-xs font-semibold text-amber-400">
+                Model Retrain Recommended
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                7 new failure events recorded since last training. Retraining
+                will improve prediction accuracy.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Security */}
+      {activeTab === "security" && (
+        <div className="space-y-4">
+          <Section
+            icon={Shield}
+            title="Authentication"
+            description="Control access and session security"
+          >
+            <SettingRow
+              label="Two-Factor Authentication"
+              description="Require OTP on every login"
+            >
+              <Toggle enabled={twoFactor} onChange={setTwoFactor} />
+            </SettingRow>
+            <SettingRow
+              label="Session Timeout"
+              description="Auto-logout after inactivity"
+            >
+              <SelectInput
+                value={sessionTimeout}
+                onChange={setSessionTimeout}
+                options={["1 hour", "4 hours", "8 hours", "24 hours"]}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Audit Log"
+              description="Record all user actions for compliance"
+            >
+              <Toggle enabled={auditLog} onChange={setAuditLog} />
+            </SettingRow>
+          </Section>
+
+          <Section
+            icon={Shield}
+            title="Access Control"
+            description="Manage roles and permissions"
+          >
+            {[
+              { role: "Biomedical Engineer", count: 3, badge: "badge-blue" },
+              { role: "Department Head", count: 7, badge: "badge-info" },
+              { role: "Technician", count: 12, badge: "badge-success" },
+              { role: "Administrator", count: 2, badge: "badge-danger" },
+            ].map((r) => (
+              <div
+                key={r.role}
+                className="flex items-center justify-between px-5 py-3.5 hover:bg-[var(--bg-elevated)] transition-colors"
+              >
                 <div>
-                  <h2 className="text-sm font-semibold text-white">
-                    Uptime & MTTR Trend
-                  </h2>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {period.toUpperCase()} performance overview
+                  <p className="text-xs font-medium text-[var(--text-primary)]">
+                    {r.role}
+                  </p>
+                  <p className="text-[11px] text-[var(--text-muted)]">
+                    {r.count} users
                   </p>
                 </div>
-                <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1">
-                  {["3m", "7m", "12m"].map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPeriod(p)}
-                      className={cn(
-                        "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all",
-                        period === p ?
-                          "bg-blue-500/20 text-blue-400 border border-blue-500/25"
-                        : "text-slate-400 hover:text-white",
-                      )}
-                    >
-                      {p.toUpperCase()}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <span className={`badge ${r.badge}`}>{r.count}</span>
+                  <ChevronRight
+                    size={13}
+                    className="text-[var(--text-muted)]"
+                  />
                 </div>
               </div>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={monthlyKPIs}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.05)"
-                  />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    domain={[70, 100]}
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    domain={[0, 10]}
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="uptime"
-                    stroke="#10b981"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Uptime %"
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="mttr"
-                    stroke="#6366f1"
-                    strokeWidth={2}
-                    dot={false}
-                    name="MTTR (h)"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Dept failures bar */}
-            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h2 className="text-sm font-semibold text-white mb-1">
-                Failures by Department
-              </h2>
-              <p className="text-[11px] text-slate-500 mb-4">
-                Historical dynamic events
-              </p>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={deptData} layout="vertical" barSize={8}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.04)"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 10, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="dept"
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={70}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar
-                    dataKey="failures"
-                    fill="#ef4444"
-                    radius={[0, 4, 4, 0]}
-                    fillOpacity={0.8}
-                    name="Failures"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Cost + dept table */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-            {/* Monthly maintenance cost */}
-            <div className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h2 className="text-sm font-semibold text-white mb-1">
-                Maintenance Cost (₦ thousands)
-              </h2>
-              <p className="text-[11px] text-slate-500 mb-4">
-                Corrective vs preventive spend distribution
-              </p>
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={monthlyKPIs} barGap={4}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.05)"
-                  />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar
-                    dataKey="preventive"
-                    fill="#6366f1"
-                    fillOpacity={0.7}
-                    radius={[3, 3, 0, 0]}
-                    barSize={12}
-                    name="Preventive"
-                  />
-                  <Bar
-                    dataKey="cost"
-                    fill="#ef4444"
-                    fillOpacity={0.7}
-                    radius={[3, 3, 0, 0]}
-                    barSize={12}
-                    name="Corrective"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Dept performance table */}
-            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-              <div className="px-4 pt-4 pb-3 border-b border-slate-800">
-                <h2 className="text-sm font-semibold text-white">
-                  Department Performance
-                </h2>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Uptime ranking metrics
-                </p>
-              </div>
-              <div className="divide-y divide-slate-800">
-                {[...deptData]
-                  .sort((a, b) => b.uptime - a.uptime)
-                  .map((d, i) => (
-                    <div
-                      key={d.dept}
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-850 transition-colors"
-                    >
-                      <span className="text-[11px] font-bold text-slate-500 w-4">
-                        {i + 1}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-white">
-                          {d.dept}
-                        </p>
-                        <div className="h-1 bg-slate-950 rounded-full mt-1 overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${d.uptime}%`,
-                              backgroundColor:
-                                d.uptime >= 90 ? "#10b981"
-                                : d.uptime >= 80 ? "#f59e0b"
-                                : "#ef4444",
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <span
-                        className={cn(
-                          "text-xs font-bold",
-                          d.uptime >= 90 ? "text-emerald-400"
-                          : d.uptime >= 80 ? "text-amber-400"
-                          : "text-red-400",
-                        )}
-                      >
-                        {d.uptime}%
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </div>
-        </>
-      }
-
-      {/* Static Report Archive View */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-white">
-              Generated Reports
-            </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Download or view past reports
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 hover:text-white transition-colors">
-              <Filter size={12} /> Filter
-            </button>
-            <button className="bg-blue-600 text-white rounded-lg font-medium text-xs flex items-center gap-1.5 px-3 py-1.5 hover:bg-blue-500 transition-colors">
-              <FileBarChart2 size={13} /> Generate Report
-            </button>
-          </div>
+            ))}
+          </Section>
         </div>
-        <div className="divide-y divide-slate-800">
-          {RECENT_REPORTS.map((r) => (
-            <div
-              key={r.id}
-              className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-950/40 transition-colors group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center flex-shrink-0">
-                <FileBarChart2 size={15} className="text-blue-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-white truncate">
-                  {r.title}
-                </p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <Calendar size={10} className="text-slate-500" />
-                  <span className="text-[11px] text-slate-500">
-                    {r.date} · {r.pages} pages
-                  </span>
-                </div>
-              </div>
-              <span
-                className={cn(
-                  "text-[10px] px-2 py-0.5 rounded-full font-medium tracking-wide",
-                  REPORT_TYPE_BADGE[r.type],
-                )}
-              >
-                {r.type}
+      )}
+
+      {/* Account */}
+      {activeTab === "account" && (
+        <div className="space-y-4">
+          <Section
+            icon={User}
+            title="Profile"
+            description="Your personal account information"
+          >
+            <SettingRow label="Full Name">
+              <TextInput value="Dr. Adaeze Okonkwo" onChange={() => {}} />
+            </SettingRow>
+            <SettingRow label="Role">
+              <span className="text-xs text-[var(--text-muted)]">
+                Chief Biomedical Engineer
               </span>
-              <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 hover:text-white opacity-0 group-hover:opacity-100 transition-all">
-                <Download size={12} /> Download
-              </button>
-              <ChevronRight
-                size={14}
-                className="text-slate-500 group-hover:text-white transition-colors"
+            </SettingRow>
+            <SettingRow label="Email">
+              <TextInput value="a.okonkwo@luth.gov.ng" onChange={() => {}} />
+            </SettingRow>
+            <SettingRow label="Language">
+              <SelectInput
+                value="English (NG)"
+                onChange={() => {}}
+                options={[
+                  "English (NG)",
+                  "English (UK)",
+                  "Yoruba",
+                  "Igbo",
+                  "Hausa",
+                ]}
               />
-            </div>
-          ))}
+            </SettingRow>
+          </Section>
+
+          <Section
+            icon={Shield}
+            title="Password"
+            description="Change your account password"
+          >
+            <SettingRow label="Current Password">
+              <input
+                type="password"
+                className="text-xs bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[var(--text-secondary)] outline-none w-36"
+                placeholder="••••••••"
+              />
+            </SettingRow>
+            <SettingRow label="New Password">
+              <input
+                type="password"
+                className="text-xs bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[var(--text-secondary)] outline-none w-36"
+                placeholder="••••••••"
+              />
+            </SettingRow>
+          </Section>
+
+          <div className="card p-4 border-red-500/20 bg-red-500/5">
+            <p className="text-xs font-semibold text-red-400 mb-1">
+              Danger Zone
+            </p>
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              Permanently delete your account and all associated data.
+            </p>
+            <button className="px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors">
+              Delete Account
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Save bar */}
+      <div className="sticky bottom-4 flex justify-end">
+        <button
+          onClick={handleSave}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg transition-all",
+            saved ?
+              "bg-emerald-500/20 border border-emerald-500/30 text-emerald-400"
+            : "btn-primary",
+          )}
+        >
+          {saved ?
+            <>
+              <CheckCircle2 size={15} /> Saved!
+            </>
+          : <>
+              <Save size={15} /> Save Changes
+            </>
+          }
+        </button>
       </div>
     </div>
   );

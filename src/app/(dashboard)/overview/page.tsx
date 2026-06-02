@@ -34,22 +34,17 @@ import {
 } from "recharts";
 import { DashboardStats, Equipment, MaintenanceRecord } from "@/types";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 interface MonthlyData {
   month: string;
   failures: number;
   preventive: number;
   corrective: number;
 }
-
 interface TooltipPayloadItem {
   name: string;
   value: number;
   color: string;
 }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({
   icon: Icon,
@@ -121,15 +116,15 @@ const CustomTooltip = ({
   );
 };
 
-const riskColor = (risk: string) =>
-  risk === "critical" ? "text-red-400"
-  : risk === "high" ? "text-amber-400"
-  : risk === "medium" ? "text-yellow-400"
+const riskColor = (r: string) =>
+  r === "critical" ? "text-red-400"
+  : r === "high" ? "text-amber-400"
+  : r === "medium" ? "text-yellow-400"
   : "text-emerald-400";
 
-const riskBg = (risk: string) =>
-  risk === "critical" ? "bg-red-500/15 text-red-400"
-  : risk === "high" ? "bg-amber-500/15 text-amber-400"
+const riskBg = (r: string) =>
+  r === "critical" ? "bg-red-500/15 text-red-400"
+  : r === "high" ? "bg-amber-500/15 text-amber-400"
   : "bg-yellow-500/15 text-yellow-400";
 
 const statusColors = {
@@ -154,17 +149,14 @@ const monthNames = [
   "Dec",
 ];
 
-function formatDate(date: Date): string {
+function formatDate(date: Date) {
   return `${monthNames[date.getMonth()]} ${date.getDate()}`;
 }
-
-function formatCurrency(n: number): string {
+function formatCurrency(n: number) {
   if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `₦${(n / 1_000).toFixed(0)}K`;
   return `₦${n}`;
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OverviewPage() {
   const { profile, user } = useAuth();
@@ -177,16 +169,15 @@ export default function OverviewPage() {
   const [seeding, setSeeding] = useState(false);
   const [hasData, setHasData] = useState(true);
 
-  const load = useCallback(async () => {
-    if (!profile?.hospitalId) return;
+  const load = useCallback(async (hospitalId: string) => {
     setLoading(true);
     try {
       const [s, hr, up, mo, seeded] = await Promise.all([
-        getDashboardStats(profile.hospitalId),
-        getHighRiskEquipment(profile.hospitalId),
-        getUpcomingMaintenance(profile.hospitalId),
-        getMonthlyMaintenanceData(profile.hospitalId),
-        hasSeededData(profile.hospitalId),
+        getDashboardStats(hospitalId),
+        getHighRiskEquipment(hospitalId),
+        getUpcomingMaintenance(hospitalId),
+        getMonthlyMaintenanceData(hospitalId),
+        hasSeededData(hospitalId),
       ]);
       setStats(s);
       setHighRisk(hr);
@@ -196,24 +187,28 @@ export default function OverviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [profile?.hospitalId]);
+  }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (profile === undefined) return; // still loading auth
+    if (profile?.hospitalId) {
+      load(profile.hospitalId);
+    } else {
+      setLoading(false); // auth resolved, no hospitalId
+    }
+  }, [profile, load]);
 
   async function handleSeedData() {
     if (!profile?.hospitalId || !user?.uid) return;
     setSeeding(true);
     try {
       await seedDemoData(profile.hospitalId, user.uid);
-      await load();
+      await load(profile.hospitalId);
     } finally {
       setSeeding(false);
     }
   }
 
-  // Build pie data from stats
   const statusData =
     stats ?
       [
@@ -245,7 +240,7 @@ export default function OverviewPage() {
       stats.criticalRisk + highRisk.filter((e) => e.riskLevel === "high").length
     : 0;
 
-  // ── Empty state ──
+  // Empty state
   if (!loading && !hasData) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-5">
@@ -303,7 +298,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-6 fade-in">
-      {/* Stats row */}
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={Activity}
@@ -343,9 +338,8 @@ export default function OverviewPage() {
         />
       </div>
 
-      {/* Charts row */}
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Failure trend */}
         <div className="card p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -413,7 +407,6 @@ export default function OverviewPage() {
           }
         </div>
 
-        {/* Status pie */}
         <div className="card p-5">
           <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-1">
             Equipment Status
@@ -478,7 +471,7 @@ export default function OverviewPage() {
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* High risk alerts */}
+        {/* High risk */}
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-[var(--text-primary)]">
@@ -508,8 +501,8 @@ export default function OverviewPage() {
             : highRisk.map((e) => (
                 <div
                   key={e.id}
+                  onClick={() => (window.location.href = "/equipment")}
                   className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
-                  onClick={() => (window.location.href = `/equipment`)}
                 >
                   <div
                     className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${riskBg(e.riskLevel)}`}
@@ -595,8 +588,6 @@ export default function OverviewPage() {
               ))
             }
           </div>
-
-          {/* Cost summary */}
           {!loading && stats && stats.totalMaintenanceCost > 0 && (
             <div className="mt-4 pt-4 border-t border-[var(--border)] flex items-center justify-between">
               <span className="text-xs text-[var(--text-muted)]">

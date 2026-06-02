@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Activity,
@@ -14,6 +14,11 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { useEffect, useState, useCallback } from "react";
+import { getMaintenanceRecords } from "@/lib/firestore";
 
 const NAV = [
   { href: "/overview", icon: LayoutDashboard, label: "Overview" },
@@ -30,10 +35,39 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const path = usePathname();
+  const router = useRouter();
+  const { profile } = useAuth();
+  const [highRiskCount, setHighRiskCount] = useState(0);
+
+  // Count scheduled/overdue maintenance as "predictions" badge
+  const loadBadge = useCallback(async (hospitalId: string) => {
+    try {
+      const records = await getMaintenanceRecords(hospitalId);
+      const now = new Date();
+      const urgent = records.filter(
+        (r) => r.status === "scheduled" && r.scheduledDate <= now,
+      ).length;
+      setHighRiskCount(urgent);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  useEffect(() => {
+    if (profile?.hospitalId) loadBadge(profile.hospitalId);
+  }, [profile?.hospitalId, loadBadge]);
+
+  async function handleSignOut() {
+    try {
+      await signOut(auth);
+      router.push("/login");
+    } catch (err) {
+      console.error("Sign out failed:", err);
+    }
+  }
 
   return (
     <>
-      {/* Mobile overlay */}
       {open && (
         <div
           className="fixed inset-0 bg-black/60 z-30 lg:hidden"
@@ -78,7 +112,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Facility
           </p>
           <p className="text-xs text-[var(--text-secondary)] font-medium mt-0.5 truncate">
-            Lagos University Teaching Hospital
+            {profile?.hospitalName ?? "—"}
           </p>
         </div>
 
@@ -103,9 +137,9 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               >
                 <Icon size={17} className={active ? "text-blue-400" : ""} />
                 {label}
-                {label === "Predictions" && (
+                {label === "Predictions" && highRiskCount > 0 && (
                   <span className="ml-auto text-[10px] bg-red-500/20 text-red-400 border border-red-500/25 px-1.5 py-0.5 rounded-full font-semibold">
-                    3
+                    {highRiskCount}
                   </span>
                 )}
               </Link>
@@ -122,7 +156,10 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             <Settings size={17} />
             Settings
           </Link>
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-[var(--text-secondary)] hover:bg-red-500/10 hover:text-red-400 transition-all">
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-[var(--text-secondary)] hover:bg-red-500/10 hover:text-red-400 transition-all"
+          >
             <LogOut size={17} />
             Sign Out
           </button>
